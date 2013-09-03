@@ -20,6 +20,7 @@ package redis
 import (
 	"errors"
 	"fmt"
+	"github.com/stathat/consistent"
 	"hash/crc32"
 	"net"
 	"strings"
@@ -50,9 +51,11 @@ type ServerInfo struct {
 
 // ServerList is a simple ServerSelector. Its zero value is usable.
 type ServerList struct {
-	lk       sync.RWMutex
-	servers  []ServerInfo
-	sharding bool
+	lk             sync.RWMutex
+	servers        []ServerInfo
+	sharding       bool
+	srvinfo_by_srv map[string]*ServerInfo
+	chash          *consistent.Consistent
 }
 
 func parseOptions(srv *ServerInfo, opts []string) error {
@@ -86,6 +89,9 @@ func (ss *ServerList) SetServers(servers ...string) error {
 	var err error
 	var fs, addr net.Addr
 	nsrv := make([]ServerInfo, len(servers))
+	ss.srvinfo_by_srv = make(map[string]*ServerInfo, len(servers))
+	ss.chash = consistent.New()
+
 	for i, server := range servers {
 		// addr db=N passwd=foobar
 		items := strings.Split(server, " ")
@@ -114,6 +120,8 @@ func (ss *ServerList) SetServers(servers ...string) error {
 		} else if fs != addr && !ss.sharding {
 			ss.sharding = true
 		}
+		s := fmt.Sprintf("%d", i)
+		ss.srvinfo_by_srv[s] = &nsrv[i]
 	}
 	ss.lk.Lock()
 	defer ss.lk.Unlock()
@@ -135,7 +143,20 @@ func (ss *ServerList) PickServer(key string) (srv ServerInfo, err error) {
 	if key == "" {
 		srv = ss.servers[0]
 	} else {
-		srv = ss.servers[crc32.ChecksumIEEE([]byte(key))%uint32(len(ss.servers))]
+		//srv = ss.servers[crc32.ChecksumIEEE([]byte(key))%uint32(len(ss.servers))]
+		srv = ss.GetKeyByConsistentHash(key)
 	}
 	return
+}
+
+func (ss *ServerList) GetKeyByCRCHash(key string) ServerInfo {
+	return ss.servers[crc32.ChecksumIEEE([]byte(key))%uint32(len(ss.servers))]
+}
+
+func (ss *ServerList) GetKeyByConsistentHash(key string) ServerInfo {
+	val, err := ss.chash.Get(key)
+	if err != nil {
+		return ss.servers[0]
+	}
+	return *ss.srvinfo_by_srv[val]
 }
