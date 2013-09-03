@@ -32,11 +32,11 @@ func init() {
 
 // TestAppend appends " World" to "Hello" and expects the lenght to be 11.
 func TestMultipleKeys(t *testing.T) {
-	//defer func() {
-	//	rc.Del("foobar")
-	//	rc.Del("jas")
-	//	rc.Del("theclash")
-	//}()
+	defer func() {
+		rc.Del("foobar")
+		rc.Del("jas")
+		rc.Del("theclash")
+	}()
 
 	if err := rc.Set("foobar", "Hello"); err != nil {
 		t.Error(err)
