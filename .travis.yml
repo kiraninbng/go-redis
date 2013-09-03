@@ -1,6 +1,6 @@
 language: go
 before_script:
-    cd redis
-    redis-server --port 6780 &
-    redis-server --port 6781 &
+    - cd redis
+    - redis-server --port 6780 &
+    - redis-server --port 6781 &
 script: go test -v
