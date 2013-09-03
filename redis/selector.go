@@ -122,6 +122,7 @@ func (ss *ServerList) SetServers(servers ...string) error {
 		}
 		s := fmt.Sprintf("%d", i)
 		ss.srvinfo_by_srv[s] = &nsrv[i]
+		ss.chash.Add(s)
 	}
 	ss.lk.Lock()
 	defer ss.lk.Unlock()
