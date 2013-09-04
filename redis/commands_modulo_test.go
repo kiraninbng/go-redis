@@ -12,7 +12,11 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-// +build multi
+// +build modulo
+
+// Test the library with multiple connections to redis, balancing using the
+// modulo algorithm:
+// go test -v -tags modulo
 
 package redis
 
@@ -32,6 +36,8 @@ var rc *Client
 
 func init() {
 	rc = New("127.0.0.1:6380", "127.0.0.1:6381", "127.0.0.1:6382")
+	// Same as:
+	// rc, err := NewClient(Modulo, "127.0.0.1:6380", "127.0.0.1:6381")
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 

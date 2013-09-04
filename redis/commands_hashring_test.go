@@ -14,6 +14,10 @@
 
 // +build hashring
 
+// Test the library with multiple connections to redis, balancing using the
+// consistent hashing algorithm:
+// go test -v -tags hashring
+
 package redis
 
 import (

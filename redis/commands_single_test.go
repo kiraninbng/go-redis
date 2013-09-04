@@ -14,6 +14,9 @@
 
 // +build single
 
+// Test the library with one single connection to redis:
+// go test -v -tags single
+
 package redis
 
 import (

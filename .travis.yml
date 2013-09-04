@@ -6,5 +6,5 @@ before_script:
         - redis-server --port 6382 &
 script:
         - go test -v -tags single
-        - go test -v -tags multi
+        - go test -v -tags modulo
         - go test -v -tags hashring
