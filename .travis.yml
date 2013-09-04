@@ -1,6 +1,9 @@
 language: go
 before_script:
-    - cd redis
-    - redis-server --port 6380 &
-    - redis-server --port 6381 &
-script: go test -v
+        - cd redis
+        - redis-server --port 6380 &
+        - redis-server --port 6381 &
+script:
+        - go test -v -tags single
+        - go test -v -tags multi
+        - go test -v -tags hashring

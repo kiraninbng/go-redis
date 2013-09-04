@@ -18,159 +18,129 @@
 package redis
 
 import (
-	"errors"
-	"fmt"
-	"github.com/stathat/consistent"
 	"hash/crc32"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
+
+	"github.com/stathat/consistent"
 )
 
-// ServerSelector is the interface that selects a redis server as a function
-// of the item's key.
-//
-// All ServerSelector implementations must be threadsafe.
-type ServerSelector interface {
-	// PickServer returns the server address that a given item
-	// should be shared onto, or the first listed server if an
-	// empty key is given.
-	PickServer(key string) (ServerInfo, error)
-
-	// Sharding returns true if the client can connect to multiple
-	// different servers. e.g.: 10.0.0.1:6379, 10.0.0.1:6380, 10.0.0.2:6379
-	Sharding() bool
-}
-
-// ServerInfo stores parsed the server information, ip:port, dbid and passwd.
+// ServerInfo stores parsed server information.
 type ServerInfo struct {
-	Addr   net.Addr
-	DB     string
-	Passwd string
+	Addr   net.Addr // Redis ip:port
+	DB     string   // Redis dbid
+	Passwd string   // Redis password
 }
 
-// ServerList is a simple ServerSelector. Its zero value is usable.
-type ServerList struct {
-	lk             sync.RWMutex
-	servers        []ServerInfo
-	sharding       bool
-	srvinfo_by_srv map[string]*ServerInfo
-	chash          *consistent.Consistent
+// ServerSelector is an interface where servers are added and selected by
+// a given key, that is used for a redis operation such as Get or Set later.
+type ServerSelector interface {
+	Add(s *ServerInfo)          // Add new server
+	Get(key string) *ServerInfo // Get server for the given key
+	GetFirst() *ServerInfo      // For commands such as Ping
+	TotalServers() int          // Number of servers added to the selector
 }
 
-func parseOptions(srv *ServerInfo, opts []string) error {
-	for _, opt := range opts {
-		items := strings.Split(opt, "=")
-		if len(items) != 2 {
-			return errors.New("Unknown option " + opt)
-		}
-		switch items[0] {
-		case "db":
-			srv.DB = items[1]
-		case "passwd":
-			srv.Passwd = items[1]
-		default:
-			return errors.New("Unknown option " + opt)
-		}
+// Modulo implements the basic server ServerSelector, hashing by key % nservers.
+type ModuloSelector struct {
+	mu     sync.RWMutex
+	server []*ServerInfo
+}
+
+// Add implements the ServerSelector interface.
+func (m *ModuloSelector) Add(s *ServerInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.server = append(m.server, s)
+}
+
+// Get implements the ServerSelector interface.
+func (m *ModuloSelector) Get(key string) *ServerInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.server) == 0 {
+		panic("No servers were added to this ModuloSelector, " +
+			"Get failed.")
 	}
-	return nil
+	return m.server[crc32.ChecksumIEEE([]byte(key))%uint32(len(m.server))]
 }
 
-// SetServers changes a ServerList's set of servers at runtime and is
-// threadsafe.
-//
-// Each server is given equal weight. A server is given more weight
-// if it's listed multiple times.
-//
-// SetServers returns an error if any of the server names fail to
-// resolve. No attempt is made to connect to the server. If any error
-// is returned, no changes are made to the ServerList.
-func (ss *ServerList) SetServers(servers ...string) error {
-	var err error
-	var fs, addr net.Addr
-	nsrv := make([]ServerInfo, len(servers))
-	ss.srvinfo_by_srv = make(map[string]*ServerInfo, len(servers))
-	ss.chash = consistent.New()
-
-	for i, server := range servers {
-		// addr db=N passwd=foobar
-		items := strings.Split(server, " ")
-		if strings.Contains(items[0], "/") {
-			addr, err = net.ResolveUnixAddr("unix", items[0])
-		} else {
-			addr, err = net.ResolveTCPAddr("tcp", items[0])
-		}
-		if err != nil {
-			return fmt.Errorf(
-				"Invalid redis server '%s': %s",
-				server, err)
-		} else {
-			nsrv[i].Addr = addr
-		}
-		// parse connection options
-		if len(items) > 1 {
-			if err := parseOptions(&nsrv[i], items[1:]); err != nil {
-				return fmt.Errorf(
-					"Invalid redis server '%s': %s",
-					server, err)
-			}
-		}
-		if i == 0 {
-			fs = addr
-		} else if fs != addr && !ss.sharding {
-			ss.sharding = true
-		}
-		s := fmt.Sprintf("%d", i)
-		ss.srvinfo_by_srv[s] = &nsrv[i]
-		ss.chash.Add(s)
+// GetFirst implements the ServerSelector interface.
+func (m *ModuloSelector) GetFirst() *ServerInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.server) == 0 {
+		panic("No servers were added to this ModuloSelector, " +
+			"GetFirst failed.")
 	}
-	ss.lk.Lock()
-	defer ss.lk.Unlock()
-	ss.servers = nsrv
-	return nil
+	return m.server[0]
 }
 
-func (ss *ServerList) Sharding() bool {
-	return ss.sharding
+// TotalServers implements the ServerSelector interface.
+func (m *ModuloSelector) TotalServers() int {
+	return len(m.server)
 }
 
-func (ss *ServerList) PickServer(key string) (srv ServerInfo, err error) {
-	ss.lk.RLock()
-	defer ss.lk.RUnlock()
-	if len(ss.servers) == 0 {
-		err = ErrNoServers
-		return
-	}
-	if key == "" {
-		srv = ss.servers[0]
-	} else {
-		//srv = ss.servers[crc32.ChecksumIEEE([]byte(key))%uint32(len(ss.servers))]
-		srv = ss.GetKeyByConsistentHash(key)
-	}
-	return
+// HashRingSelector implements a server ServerSelector that uses consistent
+// hashing for selecting a server based on a given key.
+type HashRingSelector struct {
+	mu     sync.RWMutex
+	ring   *consistent.Consistent
+	first  *net.Addr
+	server map[string]*ServerInfo
 }
 
-func (ss *ServerList) GetKeyByCRCHash(key string) ServerInfo {
-	return ss.servers[crc32.ChecksumIEEE([]byte(key))%uint32(len(ss.servers))]
+// Add implements the ServerSelector interface.
+func (h *HashRingSelector) Add(s *ServerInfo) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.ring == nil {
+		h.ring = consistent.New()
+		h.server = make(map[string]*ServerInfo)
+		h.first = &s.Addr
+	}
+	h.server[s.Addr.String()] = s
+	h.ring.Add(s.Addr.String())
 }
 
-func (ss *ServerList) GetKeyByConsistentHash(key string) ServerInfo {
-	// detect [d]
-	if key == "" {
-		return ss.servers[0]
+// Get implements the ServerSelector interface.
+func (h *HashRingSelector) Get(key string) *ServerInfo {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.ring == nil {
+		panic("No servers were added to this HashRingSelector, " +
+			"Get failed.")
 	}
-	if strings.Contains(key, "[") && strings.Contains(key, "]") {
-		k := strings.Split(key, "[")
-		key = k[0]
-		l := len(k[1])
-		s := k[1][1 : l-1]
-		i, _ := strconv.Atoi(s)
-		return ss.servers[i]
-	}
-	val, err := ss.chash.Get(key)
+	addr, err := h.ring.Get(key)
 	if err != nil {
-		return ss.servers[0]
+		panic("Unexpected error on HashRingSelector: " + err.Error())
 	}
-	return *ss.srvinfo_by_srv[val]
+	si, ok := h.server[addr]
+	if !ok {
+		panic("Unexpected error on HashRingSelector: " +
+			"server info not found")
+	}
+	return si
 }
+
+// GetFirst implements the ServerSelector interface.
+func (h *HashRingSelector) GetFirst() *ServerInfo {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.ring == nil {
+		panic("No servers were added to this HashRingSelector, " +
+			"Get failed.")
+	}
+	si, _ := h.server[(*h.first).String()]
+	return si
+}
+
+// TotalServers implements the ServerSelector interface.
+func (h *HashRingSelector) TotalServers() int {
+	return len(h.server)
+}
+
+var (
+	Modulo   = new(ModuloSelector)
+	HashRing = new(HashRingSelector)
+)

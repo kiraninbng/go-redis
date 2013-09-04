@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -45,10 +46,8 @@ var (
 // DefaultTimeout is the default socket read/write timeout.
 const DefaultTimeout = time.Duration(100) * time.Millisecond
 
-const (
-	buffered            = 8 // arbitrary buffered channel size, for readability
-	maxIdleConnsPerAddr = 2 // TODO(bradfitz): make this configurable?
-)
+// TODO: Make this configurable?
+const maxIdleConnsPerAddr = 2
 
 // resumableError returns true if err is only a protocol-level cache error.
 // This is used to determine whether or not a server connection should
@@ -61,6 +60,39 @@ func resumableError(err error) bool {
 	return false // time outs, broken pipes, etc
 }
 
+func parseServerInfo(s string) (*ServerInfo, error) {
+	var (
+		err error
+		si  = new(ServerInfo)
+	)
+	// addr:port db=N passwd=foobar
+	items := strings.Split(s, " ")
+	if strings.Contains(items[0], "/") {
+		si.Addr, err = net.ResolveUnixAddr("unix", items[0])
+	} else {
+		si.Addr, err = net.ResolveTCPAddr("tcp", items[0])
+	}
+	if err != nil {
+		return nil, fmt.Errorf("Invalid redis server '%s': %s", s, err)
+	}
+	if len(items) > 1 {
+		for _, item := range items {
+			kv := strings.Split(item, "=")
+			if len(kv) != 2 {
+				return nil,
+					fmt.Errorf("Unknown option: %s", item)
+			}
+			switch kv[0] {
+			case "db":
+				si.DB = kv[1]
+			case "passwd":
+				si.Passwd = kv[1]
+			}
+		}
+	}
+	return si, nil
+}
+
 // New returns a redis client using the provided server(s) with equal weight.
 // If a server is listed multiple times, it gets a proportional amount of
 // weight.
@@ -71,16 +103,30 @@ func resumableError(err error) bool {
 //	rc := redis.New("ip:port db=N passwd=foobared")
 //	rc := redis.New("/tmp/redis.sock db=N passwd=foobared")
 func New(server ...string) *Client {
-	ss := new(ServerList)
-	if err := ss.SetServers(server...); err != nil {
-		panic(err)
-	}
-	return NewFromSelector(ss)
+	c, _ := NewClient(Modulo, server...)
+	return c
 }
 
-// NewFromSelector returns a new Client using the provided ServerSelector.
-func NewFromSelector(ss ServerSelector) *Client {
-	return &Client{selector: ss}
+// NewClient returns a redis client using the provided ServerSelector, which
+// is either Modulo (default, same as New) or HashRing for consistent hasing.
+//
+// NewClient supports ip:port or /unix/path, and optional *db* and *passwd* arguments.
+// Example:
+//
+//	rc := redis.NewClient(redis.HashRing, "ip:port1", "ip:port2")
+//	rc := redis.NewClient(redis.Modulo, "/tmp/redis.sock db=N passwd=foobared")
+func NewClient(selector ServerSelector, server ...string) (*Client, error) {
+	if selector == nil {
+		selector = Modulo
+	}
+	for _, srv := range server {
+		if si, err := parseServerInfo(srv); err != nil {
+			return nil, err
+		} else {
+			selector.Add(si)
+		}
+	}
+	return &Client{selector: selector}, nil
 }
 
 // Client is a redis client.
@@ -100,7 +146,7 @@ type Client struct {
 type conn struct {
 	nc  net.Conn
 	rw  *bufio.ReadWriter
-	srv ServerInfo
+	srv *ServerInfo
 	c   *Client
 }
 
@@ -138,7 +184,7 @@ func (c *Client) putFreeConn(addr net.Addr, cn *conn) {
 	c.freeconn[addr] = append(freelist, cn)
 }
 
-func (c *Client) getFreeConn(srv ServerInfo) (cn *conn, ok bool) {
+func (c *Client) getFreeConn(srv *ServerInfo) (cn *conn, ok bool) {
 	c.lk.Lock()
 	defer c.lk.Unlock()
 	if c.freeconn == nil {
@@ -197,7 +243,7 @@ func (c *Client) dial(addr net.Addr) (net.Conn, error) {
 	return nil, &ConnectTimeoutError{addr}
 }
 
-func (c *Client) getConn(srv ServerInfo) (*conn, error) {
+func (c *Client) getConn(srv *ServerInfo) (*conn, error) {
 	cn, ok := c.getFreeConn(srv)
 	if ok {
 		cn.extendDeadline()
@@ -231,23 +277,24 @@ func (c *Client) getConn(srv ServerInfo) (*conn, error) {
 
 // execWithKey picks a server based on the key, and executes a command in redis.
 func (c *Client) execWithKey(urp bool, cmd, key string, a ...interface{}) (v interface{}, err error) {
-	srv, err := c.selector.PickServer(key)
-	if err != nil {
-		return
-	}
+	srv := c.selector.Get(key)
 	x := []interface{}{cmd, key}
 	return c.execWithAddr(urp, srv, append(x, a...)...)
 }
 
 // execWithKeys calls execWithKey for each key, returns an array of results.
-func (c *Client) execWithKeys(urp bool, cmd string, keys []string, a ...interface{}) (v interface{}, err error) {
+func (c *Client) execWithKeys(urp bool, cmd string, keys []string) (v interface{}, err error) {
 	var r []interface{}
 	for _, k := range keys {
-		if tmp, e := c.execWithKey(urp, cmd, k, a...); e != nil {
+		if tmp, e := c.execWithKey(urp, cmd, k); e != nil {
 			err = e
 			return
 		} else {
-			r = append(r, tmp)
+			if mi, ok := tmp.([]interface{}); ok {
+				for _, mx := range mi {
+					r = append(r, mx)
+				}
+			}
 		}
 	}
 	v = r
@@ -257,15 +304,11 @@ func (c *Client) execWithKeys(urp bool, cmd string, keys []string, a ...interfac
 // execOnFirst executes a command on the first listed server.
 // execOnFirst is used by commands that are not bound to a key. e.g.: ping, info
 func (c *Client) execOnFirst(urp bool, a ...interface{}) (interface{}, error) {
-	srv, err := c.selector.PickServer("")
-	if err != nil {
-		return nil, err
-	}
-	return c.execWithAddr(urp, srv, a...)
+	return c.execWithAddr(urp, c.selector.GetFirst(), a...)
 }
 
 // execWithAddr executes a command in a specific redis server.
-func (c *Client) execWithAddr(urp bool, srv ServerInfo, a ...interface{}) (v interface{}, err error) {
+func (c *Client) execWithAddr(urp bool, srv *ServerInfo, a ...interface{}) (v interface{}, err error) {
 	cn, err := c.getConn(srv)
 	if err != nil {
 		return
@@ -404,4 +447,21 @@ func (c *Client) parseResponse(rw *bufio.ReadWriter) (v interface{}, err error) 
 	}
 
 	return
+}
+
+// Used by tests.
+func errUnexpected(msg interface{}) string {
+	return fmt.Sprintf("Unexpected response from redis-server: %#v\n", msg)
+}
+
+func randomString(l int) string {
+	bytes := make([]byte, l)
+	for i := 0; i < l; i++ {
+		bytes[i] = byte(randInt(65, 90))
+	}
+	return string(bytes)
+}
+
+func randInt(min int, max int) int {
+	return min + rand.Intn(max-min)
 }

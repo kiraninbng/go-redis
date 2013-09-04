@@ -319,10 +319,11 @@ func (c *Client) DecrBy(key string, decrement int) (int, error) {
 // single server. On sharding, it issues one DEL command per key, in the
 // server selected for each given key.
 func (c *Client) Del(keys ...string) (n int, err error) {
-	if c.selector.Sharding() {
+	// 1 means no need to load balance by key, no sharding.
+	if c.selector.TotalServers() > 1 {
 		n, err = c.delMulti(keys...)
 	} else {
-		n, err = c.delPlain(keys...)
+		n, err = c.del(keys...)
 	}
 	return n, err
 }
@@ -330,7 +331,7 @@ func (c *Client) Del(keys ...string) (n int, err error) {
 func (c *Client) delMulti(keys ...string) (int, error) {
 	deleted := 0
 	for _, key := range keys {
-		count, err := c.delPlain(key)
+		count, err := c.del(key)
 		if err != nil {
 			return 0, err
 		}
@@ -339,7 +340,7 @@ func (c *Client) delMulti(keys ...string) (int, error) {
 	return deleted, nil
 }
 
-func (c *Client) delPlain(keys ...string) (int, error) {
+func (c *Client) del(keys ...string) (int, error) {
 	v, err := c.execWithKey(true, "DEL", keys[0], vstr2iface(keys[1:])...)
 	if err != nil {
 		return 0, err
@@ -616,7 +617,17 @@ func (c *Client) MGet(keys ...string) ([]string, error) {
 	for n, k := range keys {
 		tmp[n+1] = k
 	}
-	v, err := c.execOnFirst(true, tmp...)
+	if c.selector.TotalServers() > 1 {
+	}
+	var (
+		v   interface{}
+		err error
+	)
+	if c.selector.TotalServers() == 1 {
+		v, err = c.execOnFirst(true, tmp...)
+	} else {
+		v, err = c.execWithKeys(true, "mget", keys)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -625,9 +636,8 @@ func (c *Client) MGet(keys ...string) ([]string, error) {
 		items := v.([]interface{})
 		resp := make([]string, len(items))
 		for n, item := range items {
-			switch item.(type) {
-			case string:
-				resp[n] = item.(string)
+			if s, ok := item.(string); ok {
+				resp[n] = s
 			}
 		}
 		return resp, nil

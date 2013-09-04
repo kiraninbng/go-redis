@@ -12,9 +12,12 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
+// +build single
+
 package redis
 
 import (
+	"fmt"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -24,18 +27,19 @@ import (
 
 // TODO: sort tests by dependency (set first, etc)
 
-// rc is the redis client handler used for all tests.
+// rc is the redis client handler used for all tests below.
 // Make sure redis-server is running before starting the tests.
+var rc *Client
 
 func init() {
-	rc = New("127.0.0.1:6379", "127.0.0.1:6380", "127.0.0.1:6381")
+	rc = New("127.0.0.1:6379")
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
 // Tests
 
 // TestAppend appends " World" to "Hello" and expects the lenght to be 11.
-func TestMultiAppend(t *testing.T) {
+func TestAppend(t *testing.T) {
 	defer func() { rc.Del("foobar") }()
 	if _, err := rc.Append("foobar", "Hello"); err != nil {
 		t.Error(err)
@@ -48,8 +52,26 @@ func TestMultiAppend(t *testing.T) {
 	}
 }
 
+// TestBgRewriteAOF starts an Append Only File rewrite process.
+func __TestBgRewriteAOF(t *testing.T) {
+	if status, err := rc.BgRewriteAOF(); err != nil {
+		t.Error(err)
+	} else if status != "Background append only file rewriting started" {
+		t.Error(errUnexpected(status))
+	}
+}
+
+// TestBgSave saves the DB in background.
+func __TestBgSave(t *testing.T) {
+	if status, err := rc.BgSave(); err != nil {
+		t.Error(err)
+	} else if status != "Background saving started" {
+		t.Error(errUnexpected(status))
+	}
+}
+
 // TestBitCount reproduces the example from http://redis.io/commands/bitcount.
-func TestMultiBitCount(t *testing.T) {
+func TestBitCount(t *testing.T) {
 	defer func() { rc.Del("mykey") }()
 	if err := rc.Set("mykey", "foobar"); err != nil {
 		t.Error(err)
@@ -63,7 +85,7 @@ func TestMultiBitCount(t *testing.T) {
 }
 
 // TestBitOp reproduces the example from http://redis.io/commands/bitop.
-func TestMultiBitOp(t *testing.T) {
+func TestBitOp(t *testing.T) {
 	defer func() { rc.Del("key1", "key2") }()
 	if err := rc.Set("key1", "foobar"); err != nil {
 		t.Error(err)
@@ -79,7 +101,7 @@ func TestMultiBitOp(t *testing.T) {
 }
 
 // TestRPush and LIndex
-func TestMultiRPush(t *testing.T) {
+func TestRPush(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c")
 	if v, err := rc.LIndex("list1", 1); err != nil {
@@ -91,7 +113,7 @@ func TestMultiRPush(t *testing.T) {
 }
 
 // Test RPop
-func TestMultiRPop(t *testing.T) {
+func TestRPop(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c")
 	if v, err := rc.RPop("list1"); err != nil {
@@ -103,7 +125,7 @@ func TestMultiRPop(t *testing.T) {
 }
 
 // Test LPop
-func TestMultiLPop(t *testing.T) {
+func TestLPop(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c")
 	if v, err := rc.LPop("list1"); err != nil {
@@ -114,7 +136,7 @@ func TestMultiLPop(t *testing.T) {
 	rc.Del("list1")
 }
 
-func TestMultiLLen(t *testing.T) {
+func TestLLen(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c")
 	if v, err := rc.LLen("list1"); err != nil {
@@ -125,7 +147,7 @@ func TestMultiLLen(t *testing.T) {
 	rc.Del("list1")
 }
 
-func TestMultiLTrim(t *testing.T) {
+func TestLTrim(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c", "d")
 
@@ -142,7 +164,7 @@ func TestMultiLTrim(t *testing.T) {
 	rc.Del("list1")
 }
 
-func TestMultiLRange(t *testing.T) {
+func TestLRange(t *testing.T) {
 	rc.Del("list1")
 	rc.RPush("list1", "a", "b", "c", "d")
 
@@ -156,7 +178,7 @@ func TestMultiLRange(t *testing.T) {
 }
 
 // TestBLPop reproduces the example from http://redis.io/commands/blpop.
-func TestMultiBLPop(t *testing.T) {
+func TestBLPop(t *testing.T) {
 	rc.Del("list1", "list2")
 	rc.RPush("list1", "a", "b", "c")
 	if k, v, err := rc.BLPop(0, "list1", "list2"); err != nil {
@@ -168,7 +190,7 @@ func TestMultiBLPop(t *testing.T) {
 }
 
 // TestBRPop reproduces the example from http://redis.io/commands/brpop.
-func TestMultiBRPop(t *testing.T) {
+func TestBRPop(t *testing.T) {
 	rc.Del("list1", "list2")
 	rc.RPush("list1", "a", "b", "c")
 	if k, v, err := rc.BRPop(0, "list1", "list2"); err != nil {
@@ -179,8 +201,22 @@ func TestMultiBRPop(t *testing.T) {
 	rc.Del("list1", "list2")
 }
 
+// TestBRPopTimeout is the same as TestBRPop, but expects a time out.
+// TestBRPopTimeout also tests BLPop (because both share the same code).
+func TestBRPopTimeout(t *testing.T) {
+	rc.Del("list1", "list2")
+	if k, v, err := rc.BRPop(1, "list1", "list2"); err != ErrTimedOut {
+		if err != nil {
+			t.Error(err)
+		} else {
+			t.Error(errUnexpected("k=" + k + " v=" + v))
+		}
+	}
+	rc.Del("list1", "list2")
+}
+
 // TestBRPopLPush takes last item of a list and inserts into another.
-func TestMultiBRPopLPush(t *testing.T) {
+func TestBRPopLPush(t *testing.T) {
 	rc.Del("list1", "list2")
 	rc.RPush("list1", "a", "b", "c")
 	if v, err := rc.BRPopLPush("list1", "list2", 0); err != nil {
@@ -192,7 +228,7 @@ func TestMultiBRPopLPush(t *testing.T) {
 }
 
 // TestBRPopLPushTimeout is the same as TestBRPopLPush, but expects a time out.
-func TestMultiBRPopLPushTimeout(t *testing.T) {
+func TestBRPopLPushTimeout(t *testing.T) {
 	rc.Del("list1", "list2")
 	if v, err := rc.BRPopLPush("list1", "list2", 1); err != ErrTimedOut {
 		if err != nil {
@@ -205,7 +241,7 @@ func TestMultiBRPopLPushTimeout(t *testing.T) {
 }
 
 // TestClientListKill kills the first connection returned by CLIENT LIST.
-func TestMultiClientListKill(t *testing.T) {
+func TestClientListKill(t *testing.T) {
 	var addr []string
 	if clients, err := rc.ClientList(); err != nil {
 		t.Error(err)
@@ -223,7 +259,7 @@ func TestMultiClientListKill(t *testing.T) {
 }
 
 // TestClientSetName name the current connection, and looks it up in the list.
-func TestMultiClientSetName(t *testing.T) {
+func TestClientSetName(t *testing.T) {
 	if err := rc.ClientSetName("bozo"); err != nil {
 		t.Error(err)
 		return
@@ -249,7 +285,7 @@ func TestMultiClientSetName(t *testing.T) {
 }
 
 // TestConfigGet tests the server port number.
-func TestMultiConfigGet(t *testing.T) {
+func TestConfigGet(t *testing.T) {
 	if items, err := rc.ConfigGet("*"); err != nil {
 		t.Error(err)
 	} else if _, ok := items["dbfilename"]; !ok {
@@ -258,7 +294,7 @@ func TestMultiConfigGet(t *testing.T) {
 }
 
 // TestConfigSet sets redis dir to /tmp, and back to the default.
-func TestMultiConfigSet(t *testing.T) {
+func TestConfigSet(t *testing.T) {
 	items, err := rc.ConfigGet("dir")
 	if err != nil {
 		t.Error(err)
@@ -274,14 +310,39 @@ func TestMultiConfigSet(t *testing.T) {
 }
 
 // TestConfigResetStat resets redis statistics.
-func TestMultiConfigResetStat(t *testing.T) {
+func TestConfigResetStat(t *testing.T) {
 	if err := rc.ConfigResetStat(); err != nil {
 		t.Error(err)
 	}
 }
 
+// TestDBSize checks the current database size, adds a key, and checks again.
+func TestDBSize(t *testing.T) {
+	rc.Del("test-db-size")
+	size, err := rc.DBSize()
+	if err != nil {
+		t.Error(errUnexpected(err))
+		return
+	}
+	rc.Set("test-db-size", "zzz")
+	if new_size, err := rc.DBSize(); err != nil {
+		t.Error(errUnexpected(err))
+	} else if new_size != size+1 {
+		fmt.Printf("size=%d, new_size=%d\n", size, new_size)
+		t.Error(errUnexpected(new_size))
+	}
+	rc.Del("test-db-size")
+}
+
+// TestDebugSegfault crashes redis and breaks everything else.
+func __TestDebugSegfault(t *testing.T) {
+	if err := rc.DebugSegfault(); err != nil {
+		t.Error(err)
+	}
+}
+
 // TestDecr reproduces the example from http://redis.io/commands/decr.
-func TestMultiDecr(t *testing.T) {
+func TestDecr(t *testing.T) {
 	rc.Del("mykey")
 	rc.Set("mykey", "10")
 	if n, err := rc.Decr("mykey"); err != nil {
@@ -293,7 +354,7 @@ func TestMultiDecr(t *testing.T) {
 }
 
 // TestDecrBy reproduces the example from http://redis.io/commands/decrby.
-func TestMultiDecrBy(t *testing.T) {
+func TestDecrBy(t *testing.T) {
 	rc.Del("mykey")
 	rc.Set("mykey", "10")
 	if n, err := rc.DecrBy("mykey", 5); err != nil {
@@ -305,7 +366,7 @@ func TestMultiDecrBy(t *testing.T) {
 }
 
 // TestIncr reproduces the example from http://redis.io/commands/incr.
-func TestMultiIncr(t *testing.T) {
+func TestIncr(t *testing.T) {
 	rc.Del("mykey")
 	rc.Set("mykey", "0")
 	if n, err := rc.Incr("mykey"); err != nil {
@@ -317,7 +378,7 @@ func TestMultiIncr(t *testing.T) {
 }
 
 // TestIncrBy reproduces the example from http://redis.io/commands/incrby.
-func TestMultiIncrBy(t *testing.T) {
+func TestIncrBy(t *testing.T) {
 	rc.Del("mykey")
 	rc.Set("mykey", "0")
 	if n, err := rc.IncrBy("mykey", 5); err != nil {
@@ -329,7 +390,7 @@ func TestMultiIncrBy(t *testing.T) {
 }
 
 // TestDel creates 1024 keys and deletes them.
-func TestMultiDel(t *testing.T) {
+func TestDel(t *testing.T) {
 	keys := make([]string, 1024)
 	for n := 0; n < cap(keys); n++ {
 		k := randomString(4) + string(n)
@@ -351,7 +412,7 @@ func TestMultiDel(t *testing.T) {
 // TODO: TestDiscard
 
 // TestDump reproduces the example from http://redis.io/commands/dump.
-func TestMultiDump(t *testing.T) {
+func TestDump(t *testing.T) {
 	rc.Set("mykey", "10")
 	if v, err := rc.Dump("mykey"); err != nil {
 		t.Error(err)
@@ -362,7 +423,7 @@ func TestMultiDump(t *testing.T) {
 }
 
 // TestDump reproduces the example from http://redis.io/commands/echo.
-func TestMultiEcho(t *testing.T) {
+func TestEcho(t *testing.T) {
 	m := "Hello World!"
 	if v, err := rc.Echo(m); err != nil {
 		t.Error(err)
@@ -373,7 +434,7 @@ func TestMultiEcho(t *testing.T) {
 
 // TestEval tests server side Lua script.
 // TODO: fix the response.
-func TestMultiEval(t *testing.T) {
+func TestEval(t *testing.T) {
 	if _, err := rc.Eval(
 		"return {1,{2,3,'foo'},KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
 		2, // numkeys
@@ -388,7 +449,7 @@ func TestMultiEval(t *testing.T) {
 // TestEvalSha tests server side Lua script.
 // TestEvalSha preloads the script with ScriptLoad.
 // TODO: fix the response.
-func TestMultiEvalSha(t *testing.T) {
+func TestEvalSha(t *testing.T) {
 	sha1, err := rc.ScriptLoad("return {1,{2,3,'foo'},KEYS[1],KEYS[2],ARGV[1],ARGV[2]}")
 	if err != nil {
 		t.Error(err)
@@ -408,7 +469,7 @@ func TestMultiEvalSha(t *testing.T) {
 // TODO: TestExec
 
 // TestExists reproduces the example from http://redis.io/commands/exists.
-func TestMultiExists(t *testing.T) {
+func TestExists(t *testing.T) {
 	rc.Del("key1", "key2")
 	rc.Set("key1", "Hello")
 	if ok, err := rc.Exists("key1"); err != nil {
@@ -429,7 +490,7 @@ func TestMultiExists(t *testing.T) {
 
 // TestExpire reproduces the example from http://redis.io/commands/expire.
 // TestExpire also tests the TTL command.
-func TestMultiExpire(t *testing.T) {
+func TestExpire(t *testing.T) {
 	defer func() { rc.Del("mykey") }()
 	rc.Set("mykey", "hello")
 	if ok, err := rc.Expire("mykey", 10); err != nil {
@@ -455,7 +516,7 @@ func TestMultiExpire(t *testing.T) {
 }
 
 // TestExpireAt reproduces the example from http://redis.io/commands/expire.
-func TestMultiExpireAt(t *testing.T) {
+func TestExpireAt(t *testing.T) {
 	defer func() { rc.Del("mykey") }()
 	rc.Set("mykey", "hello")
 	if ok, err := rc.Exists("mykey"); err != nil {
@@ -482,7 +543,7 @@ func TestMultiExpireAt(t *testing.T) {
 // FlushAll and FlushDB are not required because they never fail.
 
 // TestGet reproduces the example from http://redis.io/commands/get
-func TestMultiGet(t *testing.T) {
+func TestGet(t *testing.T) {
 	rc.Del("nonexisting")
 	if v, err := rc.Get("nonexisting"); err != nil {
 		t.Error(err)
@@ -502,7 +563,7 @@ func TestMultiGet(t *testing.T) {
 
 // TestGetBit reproduces the example from http://redis.io/commands/getbit.
 // TestGetBit also tests SetBit.
-func TestMultiGetBit(t *testing.T) {
+func TestGetBit(t *testing.T) {
 	defer func() { rc.Del("mykey") }()
 	if _, err := rc.SetBit("mykey", 7, 1); err != nil {
 		t.Error(err)
@@ -523,7 +584,7 @@ func TestMultiGetBit(t *testing.T) {
 }
 
 // TestGetRange reproduces the example from http://redis.io/commands/getrange.
-func TestMultiGetRange(t *testing.T) {
+func TestGetRange(t *testing.T) {
 	defer func() { rc.Del("mykey") }()
 	rc.Set("mykey", "This is a string")
 	if v, err := rc.GetRange("mykey", 0, 3); err != nil {
@@ -555,7 +616,7 @@ func TestMultiGetRange(t *testing.T) {
 }
 
 // TestGetSet reproduces the example from http://redis.io/commands/getset.
-func TestMultiGetSet(t *testing.T) {
+func TestGetSet(t *testing.T) {
 	rc.Del("mycounter")
 	rc.Incr("mycounter")
 	if v, err := rc.GetSet("mycounter", "0"); err != nil {
@@ -574,7 +635,7 @@ func TestMultiGetSet(t *testing.T) {
 }
 
 // TestMGet reproduces the example from http://redis.io/commands/mget.
-func TestMultiMGet(t *testing.T) {
+func TestMGet(t *testing.T) {
 	rc.Set("key1", "Hello")
 	rc.Set("key2", "World")
 	if items, err := rc.MGet("key1", "key2"); err != nil {
@@ -585,8 +646,25 @@ func TestMultiMGet(t *testing.T) {
 	rc.Del("key1", "key2")
 }
 
+// TestMSet reproduces the example from http://redis.io/commands/mset.
+func TestMSet(t *testing.T) {
+	rc.Del("key1", "key2")
+	if err := rc.MSet(map[string]string{
+		"key1": "Hello", "key2": "World",
+	}); err != nil {
+		t.Error(err)
+		return
+	}
+	v1, _ := rc.Get("key1")
+	v2, _ := rc.Get("key2")
+	if v1 != "Hello" || v2 != "World" {
+		t.Error(errUnexpected(v1 + ", " + v2))
+	}
+	rc.Del("key1", "key2")
+}
+
 // TestKeys reproduces the example from http://redis.io/commands/keys
-func TestMultiKeys(t *testing.T) {
+func TestKeys(t *testing.T) {
 	rc.MSet(map[string]string{
 		"one": "1", "two": "2", "three": "3", "four": "4",
 	})
@@ -608,8 +686,26 @@ func TestMultiKeys(t *testing.T) {
 	}
 }
 
+// TestSetAndGet sets a key, fetches it, and compare the results.
+func _TestSetAndGet(t *testing.T) {
+	k := randomString(1024)
+	v := randomString(16 * 1024 * 1024)
+	if err := rc.Set(k, v); err != nil {
+		t.Error(err)
+		return
+	}
+	if val, err := rc.Get(k); err != nil {
+		t.Error(err)
+		return
+	} else if val != v {
+		t.Error(errUnexpected(val))
+	}
+	// try to clean up anyway
+	rc.Del(k)
+}
+
 // TestHIncrBy
-func TestMultiHIncrBy(t *testing.T) {
+func TestHIncrBy(t *testing.T) {
 	rc.Del("mykey")
 	if n, err := rc.HIncrBy("mykey", "beavis", 5); err != nil {
 		t.Error(errUnexpected(err))
@@ -620,7 +716,7 @@ func TestMultiHIncrBy(t *testing.T) {
 }
 
 // TestHGet
-func TestMultiHGet(t *testing.T) {
+func TestHGet(t *testing.T) {
 	rc.Del("mykey")
 	if _, err := rc.HIncrBy("mykey", "beavis", 5); err != nil {
 		t.Error(errUnexpected(err))
@@ -634,7 +730,7 @@ func TestMultiHGet(t *testing.T) {
 }
 
 // TestZIncrBy
-func TestMultiZIncrBy(t *testing.T) {
+func TestZIncrBy(t *testing.T) {
 	rc.Del("mykey")
 	if n, err := rc.ZIncrBy("mykey", 5, "beavis"); err != nil {
 		t.Error(errUnexpected(err))
@@ -645,7 +741,7 @@ func TestMultiZIncrBy(t *testing.T) {
 }
 
 // TestZScore
-func TestMultiZScore(t *testing.T) {
+func TestZScore(t *testing.T) {
 	rc.Del("mykey")
 	if _, err := rc.ZIncrBy("mykey", 5, "beavis"); err != nil {
 		t.Error(errUnexpected(err))
@@ -659,7 +755,7 @@ func TestMultiZScore(t *testing.T) {
 }
 
 // Test ZAdd
-func TestMultiZAdd(t *testing.T) {
+func TestZAdd(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis"); err != nil {
 		t.Error(errUnexpected(err))
@@ -673,7 +769,7 @@ func TestMultiZAdd(t *testing.T) {
 }
 
 // Test ZRange
-func TestMultiZRange(t *testing.T) {
+func TestZRange(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis", 2, "butthead", 3, "professor_buzzcut"); err != nil {
 		t.Error(errUnexpected(err))
@@ -697,12 +793,11 @@ func TestMultiZRange(t *testing.T) {
 }
 
 // Test ZCard
-func TestMultiZCard(t *testing.T) {
+func TestZCard(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis", 2, "butthead", 3, "professor_buzzcut"); err != nil {
 		t.Error(errUnexpected(err))
 	}
-
 	if n, err := rc.ZCard("myzset"); err != nil {
 		t.Error(errUnexpected(err))
 	} else if n != 3 {
@@ -712,7 +807,7 @@ func TestMultiZCard(t *testing.T) {
 }
 
 // Test ZCount
-func TestMultiZCount(t *testing.T) {
+func TestZCount(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis", 2, "butthead", 3, "professor_buzzcut"); err != nil {
 		t.Error(errUnexpected(err))
@@ -727,7 +822,7 @@ func TestMultiZCount(t *testing.T) {
 }
 
 // Benchmark plain Set
-func BenchmarkMultiSet(b *testing.B) {
+func BenchmarkSet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if err := rc.Set("foo", "bar"); err != nil {
 			b.Error(err)
@@ -737,7 +832,7 @@ func BenchmarkMultiSet(b *testing.B) {
 }
 
 // Benchmark plain Get
-func BenchmarkMultiGet(b *testing.B) {
+func BenchmarkGet(b *testing.B) {
 	rc.Set("foo", "bar")
 	for i := 0; i < b.N; i++ {
 		if v, err := rc.Get("foo"); err != nil {
@@ -752,7 +847,7 @@ func BenchmarkMultiGet(b *testing.B) {
 }
 
 // Test/Benchmark INCRBY
-func BenchmarkMultiIncrBy(b *testing.B) {
+func BenchmarkIncrBy(b *testing.B) {
 	if err := rc.Set("foo", "0"); err != nil {
 		b.Error(err)
 		return
@@ -772,7 +867,7 @@ func BenchmarkMultiIncrBy(b *testing.B) {
 }
 
 // Benchmark DECR
-func BenchmarkMultiDecrBy(b *testing.B) {
+func BenchmarkDecrBy(b *testing.B) {
 	if err := rc.Set("foo", strconv.Itoa(b.N)); err != nil {
 		b.Error(err)
 		return

@@ -12,6 +12,8 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
+// +build hashring
+
 package redis
 
 import (
@@ -24,9 +26,11 @@ import (
 
 // rc is the redis client handler used for all tests.
 // Make sure redis-server is running before starting the tests.
+var rc *Client
 
 func init() {
-	rc = New("127.0.0.1:6379", "127.0.0.1:6380", "127.0.0.1:6381")
+	rc, _ = NewClient(HashRing,
+		"127.0.0.1:6380", "127.0.0.1:6381", "127.0.0.1:6382")
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
