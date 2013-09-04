@@ -60,39 +60,6 @@ func resumableError(err error) bool {
 	return false // time outs, broken pipes, etc
 }
 
-func parseServerInfo(s string) (*ServerInfo, error) {
-	var (
-		err error
-		si  = new(ServerInfo)
-	)
-	// addr:port db=N passwd=foobar
-	items := strings.Split(s, " ")
-	if strings.Contains(items[0], "/") {
-		si.Addr, err = net.ResolveUnixAddr("unix", items[0])
-	} else {
-		si.Addr, err = net.ResolveTCPAddr("tcp", items[0])
-	}
-	if err != nil {
-		return nil, fmt.Errorf("Invalid redis server '%s': %s", s, err)
-	}
-	if len(items) > 1 {
-		for _, item := range items {
-			kv := strings.Split(item, "=")
-			if len(kv) != 2 {
-				return nil,
-					fmt.Errorf("Unknown option: %s", item)
-			}
-			switch kv[0] {
-			case "db":
-				si.DB = kv[1]
-			case "passwd":
-				si.Passwd = kv[1]
-			}
-		}
-	}
-	return si, nil
-}
-
 // New returns a redis client using the provided server(s) with equal weight.
 // If a server is listed multiple times, it gets a proportional amount of
 // weight.
@@ -127,6 +94,39 @@ func NewClient(selector ServerSelector, server ...string) (*Client, error) {
 		}
 	}
 	return &Client{selector: selector}, nil
+}
+
+func parseServerInfo(s string) (*ServerInfo, error) {
+	var (
+		err error
+		si  = new(ServerInfo)
+	)
+	// addr:port db=N passwd=foobar
+	items := strings.Split(s, " ")
+	if strings.Contains(items[0], "/") {
+		si.Addr, err = net.ResolveUnixAddr("unix", items[0])
+	} else {
+		si.Addr, err = net.ResolveTCPAddr("tcp", items[0])
+	}
+	if err != nil {
+		return nil, fmt.Errorf("Invalid redis server '%s': %s", s, err)
+	}
+	if len(items) > 1 {
+		for _, item := range items[1:] {
+			kv := strings.Split(item, "=")
+			if len(kv) != 2 {
+				return nil,
+					fmt.Errorf("Unknown option: %s", item)
+			}
+			switch kv[0] {
+			case "db":
+				si.DB = kv[1]
+			case "passwd":
+				si.Passwd = kv[1]
+			}
+		}
+	}
+	return si, nil
 }
 
 // Client is a redis client.
