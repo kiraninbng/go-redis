@@ -608,9 +608,6 @@ func (c *Client) HGet(key string, member string) (string, error) {
 
 // WIP (we stopped here)
 // http://redis.io/commands/mget
-
-// MGet is not fully supported on sharded connections.
-// TODO: fix
 func (c *Client) MGet(keys ...string) ([]string, error) {
 	tmp := make([]interface{}, len(keys)+1)
 	tmp[0] = "MGET"
