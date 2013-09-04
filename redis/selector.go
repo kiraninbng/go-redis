@@ -23,6 +23,7 @@ import (
 	"github.com/stathat/consistent"
 	"hash/crc32"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -155,6 +156,18 @@ func (ss *ServerList) GetKeyByCRCHash(key string) ServerInfo {
 }
 
 func (ss *ServerList) GetKeyByConsistentHash(key string) ServerInfo {
+	// detect [d]
+	if key == "" {
+		return ss.servers[0]
+	}
+	if strings.Contains(key, "[") && strings.Contains(key, "]") {
+		k := strings.Split(key, "[")
+		key = k[0]
+		l := len(k[1])
+		s := k[1][1 : l-1]
+		i, _ := strconv.Atoi(s)
+		return ss.servers[i]
+	}
 	val, err := ss.chash.Get(key)
 	if err != nil {
 		return ss.servers[0]

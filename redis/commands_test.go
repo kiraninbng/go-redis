@@ -219,7 +219,7 @@ func TestBRPop(t *testing.T) {
 // TestBRPopTimeout also tests BLPop (because both share the same code).
 func TestBRPopTimeout(t *testing.T) {
 	rc.Del("list1", "list2")
-	if k, v, err := rc.BRPop(1, "list1", "list2"); err != ErrTimedOut {
+	if k, v, err := rc.BRPop(1, "list1[1]", "list2[1]"); err != ErrTimedOut {
 		if err != nil {
 			t.Error(err)
 		} else {
@@ -337,13 +337,13 @@ func TestDBSize(t *testing.T) {
 		t.Error(errUnexpected(err))
 		return
 	}
-	rc.Set("test-db-size", "zzz")
+	rc.Set("test-db-size[0]", "zzz")
 	if new_size, err := rc.DBSize(); err != nil {
 		t.Error(errUnexpected(err))
 	} else if new_size != size+1 {
 		t.Error(errUnexpected(new_size))
 	}
-	rc.Del("test-db-size")
+	rc.Del("test-db-size[0]")
 }
 
 // TestDebugSegfault crashes redis and breaks everything else.
@@ -662,13 +662,13 @@ func TestMGet(t *testing.T) {
 func TestMSet(t *testing.T) {
 	rc.Del("key1", "key2")
 	if err := rc.MSet(map[string]string{
-		"key1": "Hello", "key2": "World",
+		"key1[1]": "Hello", "key2[1]": "World",
 	}); err != nil {
 		t.Error(err)
 		return
 	}
-	v1, _ := rc.Get("key1")
-	v2, _ := rc.Get("key2")
+	v1, _ := rc.Get("key1[1]")
+	v2, _ := rc.Get("key2[1]")
 	if v1 != "Hello" || v2 != "World" {
 		t.Error(errUnexpected(v1 + ", " + v2))
 	}
@@ -809,11 +809,11 @@ func TestZCard(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis", 2, "butthead", 3, "professor_buzzcut"); err != nil {
 		t.Error(errUnexpected(err))
-	} 
-    
+	}
+
 	if n, err := rc.ZCard("myzset"); err != nil {
 		t.Error(errUnexpected(err))
-    }else if n != 3 {
+	} else if n != 3 {
 		t.Error(errUnexpected(n))
 	}
 	rc.Del("myzset")
@@ -824,15 +824,16 @@ func TestZCount(t *testing.T) {
 	rc.Del("myzset")
 	if _, err := rc.ZAdd("myzset", 1, "beavis", 2, "butthead", 3, "professor_buzzcut"); err != nil {
 		t.Error(errUnexpected(err))
-	} 
-    
+	}
+
 	if n, err := rc.ZCount("myzset", 0, 2); err != nil {
 		t.Error(errUnexpected(err))
-    }else if n != 2 {
+	} else if n != 2 {
 		t.Error(errUnexpected(n))
 	}
 	rc.Del("myzset")
 }
+
 // Benchmark plain Set
 func BenchmarkSet(b *testing.B) {
 	for i := 0; i < b.N; i++ {

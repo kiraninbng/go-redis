@@ -179,20 +179,6 @@ func TestMultiBRPop(t *testing.T) {
 	rc.Del("list1", "list2")
 }
 
-// TestBRPopTimeout is the same as TestBRPop, but expects a time out.
-// TestBRPopTimeout also tests BLPop (because both share the same code).
-func TestMultiBRPopTimeout(t *testing.T) {
-	rc.Del("list1", "list2")
-	if k, v, err := rc.BRPop(1, "list1", "list2"); err != ErrTimedOut {
-		if err != nil {
-			t.Error(err)
-		} else {
-			t.Error(errUnexpected("k=" + k + " v=" + v))
-		}
-	}
-	rc.Del("list1", "list2")
-}
-
 // TestBRPopLPush takes last item of a list and inserts into another.
 func TestMultiBRPopLPush(t *testing.T) {
 	rc.Del("list1", "list2")
@@ -292,22 +278,6 @@ func TestMultiConfigResetStat(t *testing.T) {
 	if err := rc.ConfigResetStat(); err != nil {
 		t.Error(err)
 	}
-}
-
-// TestDBSize checks the current database size, adds a key, and checks again.
-func TestMultiDBSize(t *testing.T) {
-	size, err := rc.DBSize()
-	if err != nil {
-		t.Error(errUnexpected(err))
-		return
-	}
-	rc.Set("test-db-size", "zzz")
-	if new_size, err := rc.DBSize(); err != nil {
-		t.Error(errUnexpected(err))
-	} else if new_size != size+1 {
-		t.Error(errUnexpected(new_size))
-	}
-	rc.Del("test-db-size")
 }
 
 // TestDecr reproduces the example from http://redis.io/commands/decr.
@@ -611,23 +581,6 @@ func TestMultiMGet(t *testing.T) {
 		t.Error(err)
 	} else if items[0] != "Hello" || items[1] != "World" {
 		t.Error(errUnexpected(items))
-	}
-	rc.Del("key1", "key2")
-}
-
-// TestMSet reproduces the example from http://redis.io/commands/mset.
-func TestMultiMSet(t *testing.T) {
-	rc.Del("key1", "key2")
-	if err := rc.MSet(map[string]string{
-		"key1": "Hello", "key2": "World",
-	}); err != nil {
-		t.Error(err)
-		return
-	}
-	v1, _ := rc.Get("key1")
-	v2, _ := rc.Get("key2")
-	if v1 != "Hello" || v2 != "World" {
-		t.Error(errUnexpected(v1 + ", " + v2))
 	}
 	rc.Del("key1", "key2")
 }
