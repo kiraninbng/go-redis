@@ -24,7 +24,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -403,7 +402,7 @@ func (c *Client) parseResponse(rw *bufio.ReadWriter) (v interface{}, err error) 
 			v = "" // err = ErrCacheMiss
 			return
 		}
-		b := make([]byte, valueLen+2) // 2==crlf, TODO: fix this
+		b := make([]byte, valueLen+2) // 2==crlf
 		var s byte
 		for n := 0; n < cap(b); n++ {
 			s, err = rw.ReadByte()
@@ -447,21 +446,4 @@ func (c *Client) parseResponse(rw *bufio.ReadWriter) (v interface{}, err error) 
 	}
 
 	return
-}
-
-// Used by tests.
-func errUnexpected(msg interface{}) string {
-	return fmt.Sprintf("Unexpected response from redis-server: %#v\n", msg)
-}
-
-func randomString(l int) string {
-	bytes := make([]byte, l)
-	for i := 0; i < l; i++ {
-		bytes[i] = byte(randInt(65, 90))
-	}
-	return string(bytes)
-}
-
-func randInt(min int, max int) int {
-	return min + rand.Intn(max-min)
 }
