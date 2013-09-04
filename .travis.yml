@@ -3,6 +3,7 @@ before_script:
         - cd redis
         - redis-server --port 6380 &
         - redis-server --port 6381 &
+        - redis-server --port 6382 &
 script:
         - go test -v -tags single
         - go test -v -tags multi
