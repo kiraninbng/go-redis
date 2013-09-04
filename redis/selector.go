@@ -131,7 +131,11 @@ func (h *HashRingSelector) GetFirst() *ServerInfo {
 		panic("No servers were added to this HashRingSelector, " +
 			"Get failed.")
 	}
-	si, _ := h.server[(*h.first).String()]
+	si, ok := h.server[(*h.first).String()]
+	if !ok {
+		panic("Unexpected error on HashRingSelector: " +
+			"server info not found")
+	}
 	return si
 }
 
