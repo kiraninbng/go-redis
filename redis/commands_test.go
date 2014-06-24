@@ -740,6 +740,24 @@ func TestPing(t *testing.T) {
 	}
 }
 
+// TestExists reproduces the example from http://redis.io/commands/hexists.
+func TestHExists(t *testing.T) {
+	rc.Del("key1")
+	defer rc.Del("key1")
+	rc.HSet("key1", "Hello")
+	if ok, err := rc.HExists("key1","Hello"); err != nil {
+		t.Fatal(err)
+	} else if !ok {
+		t.Fatalf(errUnexpected, ok)
+	}
+	if ok, err := rc.HExists("key1","Hello1"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf(errUnexpected, ok)
+	}
+}
+
+
 // TestHIncrBy
 func TestHIncrBy(t *testing.T) {
 	rc.Del("mykey")

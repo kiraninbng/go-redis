@@ -572,6 +572,16 @@ func (c *Client) LRange(key string, begin, end int) ([]string, error) {
 	return iface2vstr(v), nil
 }
 
+// http://redis.io/commands/hexists
+func (c *Client) HExists(key, member string) (bool, error) {
+	v, err := c.execWithKey(true, "HEXISTS", key, member)
+	if err != nil {
+		return false, err
+	}
+	return iface2bool(v)
+}
+
+
 // http://redis.io/commands/hget
 func (c *Client) HGet(key, member string) (string, error) {
 	v, err := c.execWithKey(true, "HGET", key, member)
@@ -712,6 +722,16 @@ func (c *Client) SAdd(key string, vs ...interface{}) (int, error) {
 	return iface2int(v)
 }
 
+// http://redis.io/commands/scard
+func (c *Client) SCard(key string) (int, error) {
+	v, err := c.execWithKey(true, "SCARD", key)
+
+	if err != nil {
+		return 0, err
+	}
+	return iface2int(v)
+}
+
 // http://redis.io/commands/script-load
 func (c *Client) ScriptLoad(script string) (string, error) {
 	v, err := c.execOnFirst(true, "SCRIPT", "LOAD", script)
@@ -726,6 +746,20 @@ func (c *Client) Set(key, value string) (err error) {
 	_, err = c.execWithKey(true, "SET", key, value)
 	return
 }
+
+// http://redis.io/commands/set with ex and nx
+func (c *Client) SetWithExNx(key, value string, ex int) (err error) {
+	_, err = c.execWithKey(true, "SET", key, value,"EX",ex,"NX")
+	return
+}
+
+
+// http://redis.io/commands/set with nx
+func (c *Client) SetWithNx(key, value string) (err error) {
+	_, err = c.execWithKey(true, "SET", key, value,"NX")
+	return
+}
+
 
 // http://redis.io/commands/setbit
 func (c *Client) SetBit(key string, offset, value int) (int, error) {
@@ -754,6 +788,16 @@ func (c *Client) SMembers(key string) ([]string, error) {
 		return []string{}, err
 	}
 	return iface2vstr(v), nil
+}
+
+// http://redis.io/commands/srandmember
+func (c *Client) SRandMember(key string) (string, error) {
+	v, err := c.execWithKey(true, "SRANDMEMBER", key)
+
+	if err != nil {
+		return "", err
+	}
+	return iface2str(v)
 }
 
 type PubSubMessage struct {
