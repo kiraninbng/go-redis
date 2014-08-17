@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+    // "log"
+    // "reflect"
 )
 
 var ErrInvalidType = errors.New("Invalid type for convertion")
@@ -55,6 +57,27 @@ func iface2strmap(a interface{}) map[string]string {
 	}
 	return m
 }
+
+// iface2strmap converts an interface to map of strings
+func iface2scanres(a interface{}) []string {
+	
+	r := []string{}
+	switch a.(type) {
+	case []interface{}:
+		for _, item := range a.([]interface{}) {
+            //log.Println("type of item - ",key,reflect.TypeOf(item))
+			switch item.(type) {
+			case string:
+				r = append(r, item.(string))
+            case []interface{}:
+                r = append(r,iface2vstr(item)...)
+			}
+		}
+	}
+    
+	return r
+}
+
 
 // iface2bool validates and converts interface (int) to bool
 func iface2bool(a interface{}) (bool, error) {

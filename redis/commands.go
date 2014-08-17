@@ -40,6 +40,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+    "log"
 )
 
 // http://redis.io/commands/append
@@ -972,6 +973,32 @@ func (c *Client) ZRem(key string, vs ...interface{}) (int, error) {
 	}
 	return iface2int(v)
 }
+
+// http://redis.io/commands/zscan
+func (c *Client) ZScan(key string, cursorStart int, pattern string, count int) ([]string,error) {
+	var v interface{}
+	var err error
+
+	if pattern == "" && count == 0 {
+		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart)
+	} else if pattern != "" && count == 0 {
+		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart,"MATCH " + pattern)
+	}   else if pattern != "" && count != 0 {
+		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart,"MATCH " + pattern , "COUNT",count)
+	}   else if pattern == "" && count != 0 {
+		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart,"COUNT",count)
+	}
+
+	if err != nil {
+		return []string{}, err
+	}
+    
+    scanRes := iface2scanres(v)
+    log.Println("ScanRes - ",scanRes)
+    
+    return scanRes,nil
+}
+
 
 // GetMulti is a batch version of Get. The returned map from keys to
 // items may have fewer elements than the input slice, due to memcache
