@@ -40,7 +40,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-    "log"
 )
 
 // http://redis.io/commands/append
@@ -994,7 +993,6 @@ func (c *Client) ZScan(key string, cursorStart int, pattern string, count int) (
 	}
     
     scanRes := iface2scanres(v)
-    log.Println("ScanRes - ",scanRes)
     
     return scanRes,nil
 }
