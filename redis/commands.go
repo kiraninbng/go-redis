@@ -370,9 +370,22 @@ func (c *Client) Eval(script string, numkeys int, keys, args []string) (interfac
 		"EVAL",
 		script, // escape?
 		numkeys,
-		strings.Join(keys, " "),
-		strings.Join(args, " "),
+		//strings.Join(keys, " "),
+		//strings.Join(args, " "),
 	}
+    keysIf := make([]interface{}, len(keys))
+    for i, v := range keys {
+        keysIf[i] = interface{}(v)
+    }
+    a = append(a,keysIf...)
+    
+    argsIf := make([]interface{}, len(args))
+    for i, v := range args {
+        argsIf[i] = interface{}(v)
+    }
+    a = append(a,argsIf...)
+    
+    
 	v, err := c.execOnFirst(true, a...)
 	if err != nil {
 		return nil, err
@@ -986,6 +999,31 @@ func (c *Client) ZScan(key string, cursorStart int, pattern string, count int) (
 		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart,"MATCH " + pattern , "COUNT",count)
 	}   else if pattern == "" && count != 0 {
 		v, err = c.execWithKey(true, "ZSCAN", key, cursorStart,"COUNT",count)
+	}
+
+	if err != nil {
+		return []string{}, err
+	}
+    
+    scanRes := iface2scanres(v)
+    
+    return scanRes,nil
+}
+
+
+// http://redis.io/commands/sscan
+func (c *Client) SScan(key string, cursorStart int, pattern string, count int) ([]string,error) {
+	var v interface{}
+	var err error
+
+	if pattern == "" && count == 0 {
+		v, err = c.execWithKey(true, "SSCAN", key, cursorStart)
+	} else if pattern != "" && count == 0 {
+		v, err = c.execWithKey(true, "SSCAN", key, cursorStart,"MATCH " + pattern)
+	}   else if pattern != "" && count != 0 {
+		v, err = c.execWithKey(true, "SSCAN", key, cursorStart,"MATCH " + pattern , "COUNT",count)
+	}   else if pattern == "" && count != 0 {
+		v, err = c.execWithKey(true, "SSCAN", key, cursorStart,"COUNT",count)
 	}
 
 	if err != nil {
