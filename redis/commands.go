@@ -1035,6 +1035,19 @@ func (c *Client) SScan(key string, cursorStart int, pattern string, count int) (
     return scanRes,nil
 }
 
+// http://redis.io/commands/srem
+func (c *Client) SRem(key, field string) (err error) {
+	_, err = c.execWithKey(true, "SREM", key, field)
+	return
+}
+
+// http://redis.io/commands/rename
+func (c *Client) Rename(key1, key2 string) (err error) {
+	_, err = c.execWithKey(true, "RENAME", key1, key2)
+	return
+}
+
+
 
 // GetMulti is a batch version of Get. The returned map from keys to
 // items may have fewer elements than the input slice, due to memcache
