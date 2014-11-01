@@ -185,6 +185,17 @@ func (c *Client) BRPopLPush(src, dst string, timeout int) (string, error) {
 	return iface2str(v)
 }
 
+func (c *Client) RPopLPush(src, dst string) (string, error) {
+	v, err := c.execWithKey(true, "RPOPLPUSH", src, dst)
+	
+	if err != nil {
+		return "", err
+	} else if v == nil {
+		return "", ErrTimedOut
+	}
+	return iface2str(v)
+}
+
 // http://redis.io/commands/client-kill
 // ClientKill is not fully supported on sharded connections.
 func (c *Client) ClientKill(kill_addr string) error {
@@ -968,6 +979,16 @@ func (c *Client) ZRevRange(key string, start int, stop int, withscores bool) ([]
 	return iface2vstr(v), nil
 }
 
+// http://redis.io/commands/zrank
+func (c *Client) ZRank(key string, member string) (string, error) {
+	v, err := c.execWithKey(true, "ZRANK", key, member)
+	if err != nil {
+		return "", err
+	}
+	return iface2str(v)
+}
+
+
 // http://redis.io/commands/zscore
 func (c *Client) ZScore(key string, member string) (string, error) {
 	v, err := c.execWithKey(true, "ZSCORE", key, member)
@@ -1044,6 +1065,12 @@ func (c *Client) SRem(key, field string) (err error) {
 // http://redis.io/commands/rename
 func (c *Client) Rename(key1, key2 string) (err error) {
 	_, err = c.execWithKey(true, "RENAME", key1, key2)
+	return
+}
+
+// http://redis.io/commands/smove
+func (c *Client) SMove(set1, set2, key string) (err error) {
+	_, err = c.execWithKey(true, "SMOVE", set1, set2,key)
 	return
 }
 
