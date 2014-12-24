@@ -615,6 +615,15 @@ func (c *Client) HGet(key, member string) (string, error) {
 	return iface2str(v)
 }
 
+// http://redis.io/commands/hdel
+func (c *Client) HDel(key, member string) (int, error) {
+	v, err := c.execWithKey(true, "HDEL", key, member)
+	if err != nil {
+		return 0, err
+	}
+	return iface2int(v)
+}
+
 // http://redis.io/commands/hgetall
 func (c *Client) HGetAll(key string) (map[string]string, error) {
 	v, err := c.execWithKey(true, "HGETALL", key)
